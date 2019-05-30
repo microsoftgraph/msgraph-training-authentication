@@ -28,20 +28,18 @@ This demo will walk you through creating a web application that connects with Mi
 
 1. Open the **App_Start/Startup.Auth.cs** file. This is where authentication begins using the OWIN middleware.
 
-1. Verify that the `Scope` variable in your code is equal to `openid email profile offline_access Mail.Read`. Change it if needed.
+1. Verify that the `Scope` variable in your code is equal to `AuthenticationConfig.BasicSignInScopes + " email Mail.Read"`. Change it if needed. `AuthenticationConfig.BasicSignInScopes` has been set to `openid profile offline_access` elsewhere in the application so the scopes you will be requesting are `openid profile offline_access email Mail.Read`.
 
     ```csharp
     app.UseOpenIdConnectAuthentication(
         new OpenIdConnectAuthenticationOptions
         {
             // The `Authority` represents the v2.0 endpoint - https://login.microsoftonline.com/common/v2.0
-            // The `Scope` describes the initial permissions that your app will need.  See https://azure.microsoft.com/documentation/articles/active-directory-v2-scopes/
-
-            ClientId = clientId,
-            Authority = String.Format(CultureInfo.InvariantCulture, aadInstance, "common", "/v2.0"),
-            RedirectUri = redirectUri,
-            Scope = "openid email profile offline_access Mail.Read",
-            PostLogoutRedirectUri = redirectUri,
+            Authority = AuthenticationConfig.Authority,
+            ClientId = AuthenticationConfig.ClientId,
+            RedirectUri = AuthenticationConfig.RedirectUri,
+            PostLogoutRedirectUri = AuthenticationConfig.RedirectUri,
+            Scope = AuthenticationConfig.BasicSignInScopes + " email Mail.Read", // a basic set of permissions for user sign in & profile access "openid profile offline_access"
             TokenValidationParameters = new TokenValidationParameters
             {
                 ValidateIssuer = false,
@@ -53,62 +51,75 @@ This demo will walk you through creating a web application that connects with Mi
                 //        //else
                 //        //    throw new SecurityTokenInvalidIssuerException("Invalid issuer");
                 //    },
+                //NameClaimType = "name",
             },
     ```
 
     >Note:  When an authorization code is received, the code is redeemed for an access token and a refresh token which are stored in cache.
 
     ```csharp
-    Notifications = new OpenIdConnectAuthenticationNotifications
-    {
-        // If there is a code in the OpenID Connect response, redeem it for an access token and refresh token, and store those away.
-        AuthorizationCodeReceived = async (context) =>
-        {
-            var code = context.Code;
-            string signedInUserID = context.AuthenticationTicket.Identity.FindFirst(ClaimTypes.NameIdentifier).Value;
-            TokenCache userTokenCache = new MSALSessionCache(signedInUserID,
-                context.OwinContext.Environment["System.Web.HttpContextBase"] as HttpContextBase).GetMsalCacheInstance();
-            ConfidentialClientApplication cca =
-                new ConfidentialClientApplication(clientId, redirectUri, new ClientCredential(appKey), userTokenCache,null);
-            string[] scopes = { "Mail.Read" };
-            try
-            {
-                AuthenticationResult result = await cca.AcquireTokenByAuthorizationCodeAsync(code, scopes);
-            }
-            catch (Exception eee)
-            {
+                Notifications = new OpenIdConnectAuthenticationNotifications()
+                {
+                    AuthorizationCodeReceived = OnAuthorizationCodeReceived,
+                    AuthenticationFailed = OnAuthenticationFailed,
+                }
+            });
+    }
 
-            }
-        },
-        AuthenticationFailed = (notification) =>
-        {
-            notification.HandleResponse();
-            notification.Response.Redirect("/Error?message=" + notification.Exception.Message);
-            return Task.FromResult(0);
-        }
+    private async Task OnAuthorizationCodeReceived(AuthorizationCodeReceivedNotification context)
+    {
+        // Upon successful sign in, get the access token & cache it using MSAL
+        IConfidentialClientApplication clientApp = MsalAppBuilder.BuildConfidentialClientApplication(new ClaimsPrincipal(context.AuthenticationTicket.Identity));
+        AuthenticationResult result = await clientApp.AcquireTokenByAuthorizationCode(new[] { "Mail.Read" }, context.Code).ExecuteAsync();
     }
     ```
 
-1. Open the **Models/MsalSessionCache.cs** file. Notice that the token is persisted in session state. In case of a load-balanced application, such as an Azure Web App with multiple instances, you may need to centrally persist the state to avoid forcing the user to log on multiple times.
+    ```csharp
+    public static IConfidentialClientApplication BuildConfidentialClientApplication(ClaimsPrincipal currentUser)
+    {
+        IConfidentialClientApplication clientapp = ConfidentialClientApplicationBuilder.Create(AuthenticationConfig.ClientId)
+              .WithClientSecret(AuthenticationConfig.ClientSecret)
+              .WithRedirectUri(AuthenticationConfig.RedirectUri)
+              .WithAuthority(new Uri(AuthenticationConfig.Authority))
+              .Build();
+
+        // After the ConfidentialClientApplication is created, we overwrite its default UserTokenCache with our implementation
+        MSALPerUserMemoryTokenCache userTokenCache = new MSALPerUserMemoryTokenCache(clientapp.UserTokenCache, currentUser ?? ClaimsPrincipal.Current);
+
+        return clientapp;
+    }
+    ```
+
+1. Open the **Utils/MSALPerUserMemoryTokenCache.cs** file. Notice that the token is persisted in a `MemoryCache`. In case of a load-balanced application, such as an Azure Web App with multiple instances, you may need to centrally persist the state to avoid forcing the user to log on multiple times.
 
     ```csharp
-    public void Load()
+    /// <summary>
+    /// Loads the user token cache from memory.
+    /// </summary>
+    private void LoadUserTokenCacheFromMemory()
     {
-        SessionLock.EnterReadLock();
-        cache.Deserialize((byte[])httpContext.Session[CacheId]);
-        SessionLock.ExitReadLock();
+        string cacheKey = GetMsalAccountId();
+
+        if (string.IsNullOrWhiteSpace(cacheKey))
+            return;
+
+        // Ideally, methods that load and persist should be thread safe. MemoryCache.Get() is thread safe.
+        byte[] tokenCacheBytes = (byte[])memoryCache.Get(GetMsalAccountId());
+        UserTokenCache.DeserializeMsalV3(tokenCacheBytes);
     }
 
-    public void Persist()
+    /// <summary>
+    /// Persists the user token blob to the memoryCache.
+    /// </summary>
+    private void PersistUserTokenCache()
     {
-        SessionLock.EnterWriteLock();
+        string cacheKey = GetMsalAccountId();
 
-        // Optimistically set HasStateChanged to false. We need to do it early to avoid losing changes made by a concurrent thread.
-        cache.HasStateChanged = false;
+        if (string.IsNullOrWhiteSpace(cacheKey))
+            return;
 
-        // Reflect changes in the persistent store
-        httpContext.Session[CacheId] = cache.Serialize();
-        SessionLock.ExitWriteLock();
+        // Ideally, methods that load and persist should be thread safe.MemoryCache.Get() is thread safe.
+        memoryCache.Set(GetMsalAccountId(), UserTokenCache.SerializeMsalV3(), cacheDuration);
     }
     ```
 
@@ -133,32 +144,20 @@ This demo will walk you through creating a web application that connects with Mi
     }
     ```
 
-1. Open the **Controllers/HomeController.cs** file and view the **ReadMail** controller method. Unlike the **About** method, this method is not decorated with the `Authorize` attribute. The method retrieves the current user's token cache and creates a new `ConfidentialClientApplication` using the user's token cache. If there are users in the cache, the code calls `AcquireTokenSilentAsync` which will look in the cache for a token matching the user and the requested scope. If one is not present, it will attempt to use the refresh token. It then attaches the token to the request to Microsoft Graph to retrieve the user's messages.
+1. Open the **Controllers/HomeController.cs** file and view the **ReadMail** controller method. Unlike the **About** method, this method is not decorated with the `Authorize` attribute. The method uses the `BuildConfidentialClientApplication` helper method (shown earlier) to construct an object that implements  `IConfidentialClientApplication`. The method then calls `AcquireTokenSilent` which will look in the cache for a token matching the user and the requested scope. If one is not present, it will attempt to use the refresh token. It then attaches the token to the request to Microsoft Graph to retrieve the user's messages.
 
     ```csharp
     public async Task<ActionResult> ReadMail()
     {
+        IConfidentialClientApplication app = MsalAppBuilder.BuildConfidentialClientApplication();
+        AuthenticationResult result = null;
+        var accounts = await app.GetAccountsAsync();
+        string[] scopes = { "Mail.Read" };
+
         try
         {
-            string signedInUserID = ClaimsPrincipal.Current.FindFirst(ClaimTypes.NameIdentifier).Value;
-            TokenCache userTokenCache = new MSALSessionCache(signedInUserID, this.HttpContext).GetMsalCacheInstance();
-
-            ConfidentialClientApplication cca =
-                new ConfidentialClientApplication(clientId, redirectUri, new ClientCredential(appKey), userTokenCache, null);
-            if (cca.Users.Count() > 0)
-            {
-                string[] scopes = { "Mail.Read" };
-                AuthenticationResult result = await cca.AcquireTokenSilentAsync(scopes, cca.Users.First());
-
-                HttpClient hc = new HttpClient();
-                hc.DefaultRequestHeaders.Authorization =
-                    new System.Net.Http.Headers.AuthenticationHeaderValue("bearer", result.AccessToken);
-                HttpResponseMessage hrm = await hc.GetAsync("https://graph.microsoft.com/v1.0/me/messages");
-                string rez = await hrm.Content.ReadAsStringAsync();
-                ViewBag.Message = rez;
-            }
-            else { }
-            return View();
+            // try to get token silently
+            result = await app.AcquireTokenSilent(scopes, accounts.FirstOrDefault()).ExecuteAsync().ConfigureAwait(false);
         }
         catch (MsalUiRequiredException)
         {
@@ -170,6 +169,19 @@ This demo will walk you through creating a web application that connects with Mi
             ViewBag.Error = "An error has occurred. Details: " + eee.Message;
             return View();
         }
+
+        if (result != null)
+        {
+            // Use the token to read email
+            HttpClient hc = new HttpClient();
+            hc.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("bearer", result.AccessToken);
+            HttpResponseMessage hrm = await hc.GetAsync("https://graph.microsoft.com/v1.0/me/messages");
+
+            string rez = await hrm.Content.ReadAsStringAsync();
+            ViewBag.Message = rez;
+        }
+
+        return View();
     }
     ```
 
