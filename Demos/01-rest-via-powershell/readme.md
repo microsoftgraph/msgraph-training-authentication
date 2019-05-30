@@ -58,7 +58,7 @@ This demo will walk you through connecting to the Azure AD v2.0 endpoints to aut
         )
 
         $clientID = $credential.Username
-        $clientSecret = $credential.GetNetworkCredential().Password
+        $clientSecret = [System.Web.HttpUtility]::UrlEncode("YourAppClientSecret")
 
         #v2.0 authorize URL
         $authorizeUrl = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
