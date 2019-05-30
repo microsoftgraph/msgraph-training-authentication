@@ -1,77 +1,84 @@
-﻿function Get-CurrentUserProfile
-    {
-        Param
-        (
-            [parameter(Mandatory=$true,
-            ValueFromPipeline=$true)]
-            [PSCredential]
-            $credential,
-            [parameter(Mandatory=$true)]
-            [string]
-            $scopes,
-            [parameter(Mandatory=$true)]
-            [string]
-            $redirectUrl,
-            [switch]
-            $displayTokens
-        )
+# Copyright (c) Microsoft Corporation. All rights reserved.
+# Licensed under the MIT license.
 
-        $clientID = $credential.Username
-        $clientSecret = [System.Web.HttpUtility]::UrlEncode("YourAppClientSecret")
+function Get-CurrentUserProfile
+{
+  Param
+  (
+    [parameter(Mandatory=$true,
+    ValueFromPipeline=$true)]
+    [PSCredential]
+    $credential,
+    [parameter(Mandatory=$true)]
+    [string]
+    $scopes,
+    [parameter(Mandatory=$true)]
+    [string]
+    $redirectUrl,
+    [switch]
+    $displayTokens
+  )
 
-        #v2.0 authorize URL
-        $authorizeUrl = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
+  $clientID = $credential.Username
+  $clientSecret = $credential.GetNetworkCredential().Password
+  #URL encode the secret
+  $clientSecret = [System.Web.HttpUtility]::UrlEncode($clientSecret)
 
-        #Permission scopes
-        $requestUrl = $authorizeUrl + "?scope=$scopes"
+  #v2.0 authorize URL
+  $authorizeUrl = "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
 
-        #Code grant, will receive a code that can be redeemed for a token
-        $requestUrl += "&response_type=code"
+  #Permission scopes
+  $requestUrl = $authorizeUrl + "?scope=$scopes"
 
-        #Add your app's Application ID
-        $requestUrl += "&client_id=$clientID"
+  #Code grant, will receive a code that can be redeemed for a token
+  $requestUrl += "&response_type=code"
 
-        #Add your app's redirect URL
-        $requestUrl += "&redirect_uri=$redirectUrl"
+  #Add your app's Application ID
+  $requestUrl += "&client_id=$clientID"
 
-        #Options for response_mode are "query" or "form_post". We want the response
-        #to include the data in the querystring
-        $requestUrl += "&response_mode=query"
+  #Add your app's redirect URL
+  $requestUrl += "&redirect_uri=$redirectUrl"
 
-        Write-Host
-        Write-Host "Copy the following URL and paste the following into your browser:"
-        Write-Host
-        Write-Host $requestUrl -ForegroundColor Cyan
-        Write-Host
-        Write-Host "Copy the code querystring value from the browser and paste it below."
-        Write-Host
-        $code = Read-Host -Prompt "Enter the code"
+  #Options for response_mode are "query" or "form_post". We want the response
+  #to include the data in the querystring
+  $requestUrl += "&response_mode=query"
 
-        $body = "client_id=$clientID&client_secret=$clientSecret&scope=$scopes&grant_type=authorization_code&code=$code&redirect_uri=$redirectUrl"
-        #v2.0 token URL
-        $tokenUrl = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
+  Write-Host
+  Write-Host "Copy the following URL and paste the following into your browser:"
+  Write-Host
+  Write-Host $requestUrl -ForegroundColor Cyan
+  Write-Host
+  Write-Host "Copy the code querystring value from the browser and paste it below."
+  Write-Host
+  $code = Read-Host -Prompt "Enter the code"
 
-        $response = Invoke-RestMethod -Method Post -Uri $tokenUrl -Headers @{"Content-Type" = "application/x-www-form-urlencoded"} -Body $body
+  $body = "client_id=$clientID&client_secret=$clientSecret&scope=$scopes&grant_type=authorization_code&code=$code&redirect_uri=$redirectUrl"
+  #v2.0 token URL
+  $tokenUrl = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
 
-        if($displayTokens)
-        {
-            $response | select * | fl
-        }
+  $response = Invoke-RestMethod -Method Post -Uri $tokenUrl -Headers @{"Content-Type" = "application/x-www-form-urlencoded"} -Body $body
 
-        #Pass the access_token in the Authorization header to the Microsoft Graph
-        $token = $response.access_token
-        Invoke-RestMethod -Method Get -Uri "https://graph.microsoft.com/v1.0/me" -Headers @{"Authorization" = "bearer $token"}
-    }
+  if($displayTokens)
+  {
+    $response | select * | fl
+  }
 
-    #offline_acess:  Allows requesting refresh tokens
-    #openid:  Allows your app to sign the user in and receive an app-specific identifier for the user
-    #profile: Allows your app access to all other basic information such as name, preferred username, object ID, and others
-    #User.Read: Allows your app to read the current's user's profile
-    $scopes = "offline_access+openid+profile+User.Read"
+  #Pass the access_token in the Authorization header to the Microsoft Graph
+  $token = $response.access_token
+  Invoke-RestMethod -Method Get -Uri "https://graph.microsoft.com/v1.0/me" -Headers @{"Authorization" = "bearer $token"}
+}
 
-    #Redirects to this URL will show a 404 in your browser, but allows you to copy the returned code from the URL bar
-    #Must match a redirect URL for your registered application
-    $redirectURL = "[YOUR WEB APP URL]"
+Add-Type -AssemblyName System.Web
 
-    $credential = Get-Credential -Message "Enter the client ID and client secret"
-    Get-CurrentUserProfile $credential -scopes $scopes -redirectUrl $redirectURL -displayTokens
+#offline_access:  Allows requesting refresh tokens
+#openid:  Allows your app to sign the user in and receive an app-specific identifier for the user
+#profile: Allows your app access to all other basic information such as name, preferred username, object ID, and others
+#User.Read: Allows your app to read the current's user's profile
+$scopes = "offline_access+openid+profile+User.Read"
+
+#Redirects to this URL will show a 404 in your browser, but allows you to copy the returned code from the URL bar
+#Must match a redirect URL for your registered application
+$redirectURL = "https://localhost:44326"
+
+$credential = Get-Credential -Message "Enter the client ID and client secret"
+Get-CurrentUserProfile $credential -scopes $scopes -redirectUrl $redirectURL -displayTokens
