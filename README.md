@@ -16,7 +16,7 @@ In this lab, you will walk through authentication and permissions scenarios leve
 
 ## Watch the Module
 
-This module has been recorded and is available in the Office Development YouTube channel: [Authenticate and connect with Microsoft Graph](https://www.youtube.com/watch?v=QZHNPr7TRPU)
+This module has been recorded and is available in the Office Development YouTube channel: [Authenticate and connect with Microsoft Graph](https://youtu.be/xWhyG-SuyQM)
 
 ## Contributors
 
@@ -29,15 +29,16 @@ This module has been recorded and is available in the Office Development YouTube
 
 ## Version history
 
-| Version | Date               | Comments                                     |
-| ------- | ------------------ | -------------------------------------------- |
-| 1.6     | March 24, 2019     | 2019Q4 content refresh                       |
-| 1.5     | March 11, 2019     | 2019Q3 content refresh                       |
-| 1.4     | December 22, 2018  | 2019Q2 content refresh                       |
-| 1.3     | September 12, 2018 | 2019Q1 content refresh                       |
-| 1.2     | June 8, 2018       | 2018Q4 content refresh & style guide updates |
-| 1.1     | March 14, 2018     | Code Review and minor corrections            |
-| 1.0     |                    | Initial release                              |
+| Version |        Date        |                     Comments                     |
+| ------- | ------------------ | ------------------------------------------------ |
+| 1.7     | June 18, 2019      | Updated readme to refreshed screencast recording |
+| 1.6     | May 24, 2019       | 2019Q4 content refresh                           |
+| 1.5     | March 11, 2019     | 2019Q3 content refresh                           |
+| 1.4     | December 22, 2018  | 2019Q2 content refresh                           |
+| 1.3     | September 12, 2018 | 2019Q1 content refresh                           |
+| 1.2     | June 8, 2018       | 2018Q4 content refresh & style guide updates     |
+| 1.1     | March 14, 2018     | Code Review and minor corrections                |
+| 1.0     |                    | Initial release                                  |
 
 ## Disclaimer
 
